@@ -1,0 +1,2 @@
+1、write_batch类
+是一个批量写类，把写操作集合在这里，然后通过Iterate接口遍历所有元素，执行操作。Iterate接口里面memtable的接口去实现。
