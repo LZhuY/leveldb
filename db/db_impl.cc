@@ -491,7 +491,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 }
 
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
-                                Version* base) {
+                                Version* base) { ///把imem写到level0
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
@@ -648,6 +648,10 @@ void DBImpl::RecordBackgroundError(const Status& s) {
   }
 }
 
+/*
+1. 将imm_写入磁盘生成一个新的sstable 
+2. 对各个level中的文件进行合并，避免某个level中的文件过多，以及删除掉一些过期或者已经被用户调用delete删除的key-value。 合并同一个KEY的多个操作。
+*/
 void DBImpl::MaybeScheduleCompaction() {
   mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
@@ -661,7 +665,7 @@ void DBImpl::MaybeScheduleCompaction() {
              !versions_->NeedsCompaction()) {
     // No work to be done
   } else {
-    background_compaction_scheduled_ = true;
+    background_compaction_scheduled_ = true; ///确保只有一个后台线程实例
     env_->Schedule(&DBImpl::BGWork, this);
   }
 }
@@ -669,31 +673,31 @@ void DBImpl::MaybeScheduleCompaction() {
 void DBImpl::BGWork(void* db) {
   reinterpret_cast<DBImpl*>(db)->BackgroundCall();
 }
-
+///背景线程
 void DBImpl::BackgroundCall() {
   MutexLock l(&mutex_);
   assert(background_compaction_scheduled_);
-  if (shutting_down_.Acquire_Load()) {
+  if (shutting_down_.Acquire_Load()) { ///shutting_down_ 数据库已经关闭
     // No more background work when shutting down.
   } else if (!bg_error_.ok()) {
     // No more background work after a background error.
   } else {
-    BackgroundCompaction();
+    BackgroundCompaction(); ///主要函数，把imm写到硬盘或者合并mem
   }
 
-  background_compaction_scheduled_ = false;
+  background_compaction_scheduled_ = false; ///当前线程完成任务了。
 
   // Previous compaction may have produced too many files in a level,
   // so reschedule another compaction if needed.
-  MaybeScheduleCompaction();
-  background_work_finished_signal_.SignalAll();
+  MaybeScheduleCompaction();  ///唤起一个新的线程，因为在BackgroundCall执行之间可能有很多数据写入，需要重新BackgroundCall了。
+  background_work_finished_signal_.SignalAll(); ///唤醒所有等待这个后台线程的其他线程。
 }
 
-void DBImpl::BackgroundCompaction() {
+void DBImpl::BackgroundCompaction() {///后台压缩操作
   mutex_.AssertHeld();
 
-  if (imm_ != nullptr) {
-    CompactMemTable();
+  if (imm_ != nullptr) { 
+    CompactMemTable();//将imm_写到level 0,就是一个sstable中。
     return;
   }
 
@@ -740,7 +744,7 @@ void DBImpl::BackgroundCompaction() {
         versions_->LevelSummary(&tmp));
   } else {
     CompactionState* compact = new CompactionState(c);
-    status = DoCompactionWork(compact);
+    status = DoCompactionWork(compact); ///合并多个sstable
     if (!status.ok()) {
       RecordBackgroundError(status);
     }
@@ -890,7 +894,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
-Status DBImpl::DoCompactionWork(CompactionState* compact) {
+Status DBImpl::DoCompactionWork(CompactionState* compact) { ///合并多个sstable接口，实现多个sstable的合并
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
@@ -912,8 +916,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
 
-  Iterator* input = versions_->MakeInputIterator(compact->compaction);
-  input->SeekToFirst();
+  Iterator* input = versions_->MakeInputIterator(compact->compaction); ///合并多个sstable中的key,实际是创建一个mergeIterator，每次只返回最小的KEY/val
+  input->SeekToFirst(); ///是一个mergeIterator，每次返回最小的KEY/val
   Status status;
   ParsedInternalKey ikey;
   std::string current_user_key;
@@ -935,8 +939,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     Slice key = input->key();
     if (compact->compaction->ShouldStopBefore(key) &&
-        compact->builder != nullptr) {
-      status = FinishCompactionOutputFile(compact, input);
+        compact->builder != nullptr) { 
+      status = FinishCompactionOutputFile(compact, input); ///关闭现在的file,会再次开启一个新的。
       if (!status.ok()) {
         break;
       }
@@ -999,7 +1003,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->smallest.DecodeFrom(key);
       }
       compact->current_output()->largest.DecodeFrom(key);
-      compact->builder->Add(key, input->value());
+      compact->builder->Add(key, input->value()); ///添加KEY/val到文件中
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=
@@ -1011,7 +1015,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       }
     }
 
-    input->Next();
+    input->Next();///下一个KEY/VAL对
   }
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
@@ -1027,7 +1031,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   input = nullptr;
 
   CompactionStats stats;
-  stats.micros = env_->NowMicros() - start_micros - imm_micros;
+  stats.micros = env_->NowMicros() - start_micros - imm_micros; ///魔法数据？？？
   for (int which = 0; which < 2; which++) {
     for (int i = 0; i < compact->compaction->num_input_files(which); i++) {
       stats.bytes_read += compact->compaction->input(which, i)->file_size;
@@ -1328,21 +1332,33 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   return result; ///所有的writer中的所有writebatch的内容被加到tmp_batch中
 }
 
+/*
+leveldb之所以名字里面有level这个词，主要是因为leveldb将磁盘上的sstable文件分层(level)存储。
+每个内存中的Memtable所生成的sstable文件在level 0 中，高一层的level文件由低一层的level文件
+compact而成，或者说合并而成。最开始的时候只有level0中有文件，随着memtable不断生成sstable文件，
+level0中的文件最终会达到一个数量，当这个数量大于某个阀值时，就选择level0中的若干个sstable文件进行合并，
+并把合并后的文件放入到level1中，当level1中的文件过多时，level1中的部分文件也将会合成新的sstable文件，
+放入level2中，以此类推。除了level0之外，其他level中的文件的key是不允许重复的，(level0重复是因为对同一个KEY有多个操作，修改、删除等。最终这些操作合并到下一层)
+因此我们这里所说的level i中的部分文件合成放入level (i+1) i>1，是指将level i中的那部分文件和level i+1中和它的
+key重合的文件进行合并，而不是至单独level i中的文件合并。
+*/
+
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::MakeRoomForWrite(bool force) {
+Status DBImpl::MakeRoomForWrite(bool force) {  /// sstable的形式将数据持久化。在leveldb中，内存中的每个memtable对应磁盘上的每个sstable
   mutex_.AssertHeld();
   assert(!writers_.empty());
   bool allow_delay = !force;
   Status s;
-  while (true) {
+  while (true) { ///大循环知道mem中有可以写的空间，如mem赋值给imem后重新创建新memtable等
     if (!bg_error_.ok()) {
       // Yield previous error
       s = bg_error_;
       break;
     } else if (
         allow_delay &&
-        versions_->NumLevelFiles(0) >= config::kL0_SlowdownWritesTrigger) {
+        versions_->NumLevelFiles(0) >= config::kL0_SlowdownWritesTrigger) { ///可能就要出发压缩，减小写入速度。
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -1354,35 +1370,35 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
     } else if (!force &&
-               (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+               (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {///有足够空间可以写可以直接break了。
       // There is room in current memtable
       break;
-    } else if (imm_ != nullptr) {
+    } else if (imm_ != nullptr) { ///前一个mem已经写满，正在compact，接着等。
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
       background_work_finished_signal_.Wait();
-    } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
+    } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) { ///level0中的sstable分件是否太多，如果是还得等。
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
       background_work_finished_signal_.Wait();
-    } else {
+    } else {                                                                ///要么创建新的memtable,要么现在的memtable有空间可以写。
       // Attempt to switch to a new memtable and trigger compaction of old
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
       WritableFile* lfile = nullptr;
-      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile); ///打开一个新LOG文件句柄，指针的指针，函数里面赋值。
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
-        versions_->ReuseFileNumber(new_log_number);
+        versions_->ReuseFileNumber(new_log_number); 
         break;
       }
-      delete log_;
+      delete log_; ///释放旧的log_文件，使用新的。每个memtable对应一个LOGfile
       delete logfile_;
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);
-      imm_ = mem_;
+      imm_ = mem_;                  ///前一个mem_需要保存compact的memtale
       has_imm_.Release_Store(imm_);
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();

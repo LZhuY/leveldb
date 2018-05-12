@@ -192,7 +192,7 @@ class VersionSet {
   // Arrange to reuse "file_number" unless a newer file number has
   // already been allocated.
   // REQUIRES: "file_number" was returned by a call to NewFileNumber().
-  void ReuseFileNumber(uint64_t file_number) {
+  void ReuseFileNumber(uint64_t file_number) { ///NewFileNumber返回的number打开文件失败，这里回退一个number
     if (next_file_number_ == file_number + 1) {
       next_file_number_ = file_number;
     }

@@ -27,7 +27,7 @@ Status BuildTable(const std::string& dbname,
   std::string fname = TableFileName(dbname, meta->number);
   if (iter->Valid()) {
     WritableFile* file;
-    s = env->NewWritableFile(fname, &file);
+    s = env->NewWritableFile(fname, &file); ///创建一个写文件，有自己的buff缓存，数据先push到缓存中，然后flush接口写到文件中。
     if (!s.ok()) {
       return s;
     }
@@ -37,7 +37,7 @@ Status BuildTable(const std::string& dbname,
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
       meta->largest.DecodeFrom(key);
-      builder->Add(key, iter->value());
+      builder->Add(key, iter->value()); ///TableBuilder把数据加到
     }
 
     // Finish and check for builder errors

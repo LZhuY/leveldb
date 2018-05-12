@@ -23,7 +23,7 @@ struct TableBuilder::Rep {
   WritableFile* file;
   uint64_t offset;
   Status status;
-  BlockBuilder data_block;
+  BlockBuilder data_block; ///数据块，一个sstable中有多个数据块。
   BlockBuilder index_block;
   std::string last_key;
   int64_t num_entries;
@@ -126,7 +126,7 @@ void TableBuilder::Flush() {
   if (!ok()) return;
   if (r->data_block.empty()) return;
   assert(!r->pending_index_entry);
-  WriteBlock(&r->data_block, &r->pending_handle);
+  WriteBlock(&r->data_block, &r->pending_handle); ///把块写到sstable中
   if (ok()) {
     r->pending_index_entry = true;
     r->status = r->file->Flush();
@@ -167,7 +167,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
       break;
     }
   }
-  WriteRawBlock(block_contents, type, handle);
+  WriteRawBlock(block_contents, type, handle);///写完后会重置这个block
   r->compressed_output.clear();
   block->Reset();
 }
