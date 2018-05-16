@@ -491,7 +491,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
 }
 
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
-                                Version* base) { ///把imem写到level0
+                                Version* base) { ///把imem写到level0，好像只是单纯的写，没有KEY合并之类的操作。
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
@@ -916,14 +916,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) { ///合并多个sstab
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
 
-  Iterator* input = versions_->MakeInputIterator(compact->compaction); ///合并多个sstable中的key,实际是创建一个mergeIterator，每次只返回最小的KEY/val
+  Iterator* input = versions_->MakeInputIterator(compact->compaction); ///合并多个sstable中的key,实际是创建一个mergeIterator，相当于合并排序，相同KEY会连续返回。
   input->SeekToFirst(); ///是一个mergeIterator，每次返回最小的KEY/val
   Status status;
   ParsedInternalKey ikey;
   std::string current_user_key;
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
-  for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
+  for (; input->Valid() && !shutting_down_.Acquire_Load(); ) { ///这个iterator是按(seq降序、KEY升序、TYPE升序排列)
     // Prioritize immutable compaction work
     if (has_imm_.NoBarrier_Load() != nullptr) {
       const uint64_t imm_start = env_->NowMicros();
@@ -947,18 +947,18 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) { ///合并多个sstab
     }
 
     // Handle key/value, add to state, etc.
-    bool drop = false;
-    if (!ParseInternalKey(key, &ikey)) {
+    bool drop = false; ///是否丢掉
+    if (!ParseInternalKey(key, &ikey)) { ///把原始KEY拆分成几个部分，seq、type、strKEY。出错了也不删除，照样保存。
       // Do not hide error keys
       current_user_key.clear();
-      has_current_user_key = false;
+      has_current_user_key = false; ///当前是否有KEY
       last_sequence_for_key = kMaxSequenceNumber;
     } else {
-      if (!has_current_user_key ||
+      if (!has_current_user_key ||  
           user_comparator()->Compare(ikey.user_key,
-                                     Slice(current_user_key)) != 0) {
+                                     Slice(current_user_key)) != 0) { ///当前没有KEY，或者现在的IKEY跟前一个不一样。
         // First occurrence of this user key
-        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size()); ///当前KEY，只是字符串部分。
         has_current_user_key = true;
         last_sequence_for_key = kMaxSequenceNumber;
       }
@@ -968,7 +968,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) { ///合并多个sstab
         drop = true;    // (A)
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
-                 compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+                 compact->compaction->IsBaseLevelForKey(ikey.user_key)) { ///IsBaseLevelForKey 是否在更深层LEVEL中，如果是不能丢掉。需要写入等待更深合并。
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers

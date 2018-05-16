@@ -196,7 +196,7 @@ Status TableBuilder::status() const {
   return rep_->status;
 }
 
-Status TableBuilder::Finish() {
+Status TableBuilder::Finish() { ///完成一个sstable的写入，这里可以看到一个sstable的格式，各个组成部分。
   Rep* r = rep_;
   Flush();
   assert(!r->closed);

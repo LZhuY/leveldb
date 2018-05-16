@@ -66,8 +66,8 @@ class TwoLevelIterator: public Iterator {
   void* arg_;
   const ReadOptions options_;
   Status status_;
-  IteratorWrapper index_iter_;
-  IteratorWrapper data_iter_; // May be nullptr
+  IteratorWrapper index_iter_; ///表示这一层所有文件的元信息
+  IteratorWrapper data_iter_; // May be nullptr ///表示当前文件的数据信息
   // If data_iter_ is non-null, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the data_iter_.
   std::string data_block_handle_;

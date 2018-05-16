@@ -69,8 +69,7 @@ class MergingIterator : public Iterator {
         IteratorWrapper* child = &children_[i];
         if (child != current_) {
           child->Seek(key());
-          if (child->Valid() &&
-              comparator_->Compare(key(), child->key()) == 0) {
+          if (child->Valid() && comparator_->Compare(key(), child->key()) == 0) {
             child->Next();
           }
         }
@@ -152,7 +151,7 @@ class MergingIterator : public Iterator {
   Direction direction_;
 };
 
-void MergingIterator::FindSmallest() {
+void MergingIterator::FindSmallest() { ///相当于是合并排序，多个列表都是排好序的，在多个列表中找最小的那个。
   IteratorWrapper* smallest = nullptr;
   for (int i = 0; i < n_; i++) {
     IteratorWrapper* child = &children_[i];

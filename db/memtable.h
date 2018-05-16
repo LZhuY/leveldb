@@ -70,7 +70,7 @@ class MemTable {
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
 
-  typedef SkipList<const char*, KeyComparator> Table;
+  typedef SkipList<const char*, KeyComparator> Table; ///KEY比较函数当参数。
 
   KeyComparator comparator_;
   int refs_;
