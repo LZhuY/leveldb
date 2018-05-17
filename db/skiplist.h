@@ -259,18 +259,18 @@ bool SkipList<Key,Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
 }
 
 template<typename Key, class Comparator>
-typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOrEqual(const Key& key, Node** prev)
+typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOrEqual(const Key& key, Node** prev) //找到KEY >= 的所有KEY列表
     const {
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   while (true) {
     Node* next = x->Next(level);
-    if (KeyIsAfterNode(key, next)) {
+    if (KeyIsAfterNode(key, next)) { ///如果小于KEY，就一直找
       // Keep searching in this list
       x = next;
     } else {
       if (prev != nullptr) prev[level] = x;
-      if (level == 0) {
+      if (level == 0) { ///the lower level, return
         return next;
       } else {
         // Switch to next list
@@ -338,7 +338,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
   // TODO(opt): We can use a barrier-free variant of FindGreaterOrEqual()
   // here since Insert() is externally synchronized.
   Node* prev[kMaxHeight];
-  Node* x = FindGreaterOrEqual(key, prev);
+  Node* x = FindGreaterOrEqual(key, prev); //找到KEY >= 的所有KEY列表
 
   // Our data structure does not allow duplicate insertion
   assert(x == nullptr || !Equal(key, x->key));
@@ -364,7 +364,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
   for (int i = 0; i < height; i++) {
     // NoBarrier_SetNext() suffices since we will add a barrier when
     // we publish a pointer to "x" in prev[i].
-    x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));
+    x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i)); //当前节点的NEXT就是prev[i]的next, 前节点就是prev[i]
     prev[i]->SetNext(i, x);
   }
 }
